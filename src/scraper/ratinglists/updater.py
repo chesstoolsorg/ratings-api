@@ -254,7 +254,6 @@ def update_uscf_rating_list() -> bool:
         return False
     
     # Parse and update database
-    return True
     success = parse_uscf_rating_list(USCF_FILE_PATH)
     
     if success:
