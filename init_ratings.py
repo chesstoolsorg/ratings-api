@@ -5,8 +5,15 @@ from src.scraper.ratinglists.parsers import parse_fide_rating_list, parse_cfc_ra
 from src.scraper.ratinglists.updater import update_cfc_rating_list, update_fide_rating_list, update_uscf_rating_list
 from src.scraper.ratinglists.db import reset_collections
 
-# Get download flag from command line argument
+# Parse command line arguments
 DOWNLOAD_LATEST = False
+RESET_DB = False
+
+for arg in sys.argv[1:]:
+    if arg == "--download":
+        DOWNLOAD_LATEST = True
+    elif arg == "--reset":
+        RESET_DB = True
 
 # Configure logging
 logging.basicConfig(
@@ -18,11 +25,15 @@ logger = logging.getLogger('rating_list_init')
 try:
     logger.info("Starting rating list initialization...")
     logger.info(f"Download latest ratings: {DOWNLOAD_LATEST}")
+    logger.info(f"Reset database: {RESET_DB}")
 
-    # First reset collections to ensure clean state
-    logger.info("Resetting database collections...")
-    reset_result = reset_collections()
-    logger.info(f"Reset result: {'Successful' if reset_result else 'Failed'}")
+    # Only reset collections if explicitly requested
+    if RESET_DB:
+        logger.info("Resetting database collections (--reset flag detected)...")
+        reset_result = reset_collections()
+        logger.info(f"Reset result: {'Successful' if reset_result else 'Failed'}")
+    else:
+        logger.info("Using incremental update mode - existing records will be updated, not replaced")
 
     if DOWNLOAD_LATEST:
         # Download and parse the latest rating lists
