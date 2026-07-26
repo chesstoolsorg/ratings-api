@@ -7,10 +7,13 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.responses import ORJSONResponse, RedirectResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 import asyncio
 
+from src import chesstools_ui
 from src.scraper import fide_scraper
+from src.scraper.fide_scraper import FIDEServiceError
 from src.scraper.ratinglists import db as ratings_db
 from src.scraper.ratinglists.updater import update_all_rating_lists, update_cfc_rating_list, update_fide_rating_list
 
@@ -38,7 +41,11 @@ class GoogleAnalyticsMiddleware(BaseHTTPMiddleware):
         process_time = (datetime.datetime.now() - start_time).total_seconds()
         
         # Log API usage (you can extend this to send to GA4 via Measurement Protocol)
-        if not request.url.path.startswith("/static") and not request.url.path.startswith("/favicon"):
+        if (
+            not request.url.path.startswith("/static")
+            and not request.url.path.startswith("/favicon")
+            and not request.url.path.startswith("/chesstools-ui")
+        ):
             print(f"API Request: {request.method} {request.url.path} - {response.status_code} - {process_time:.3f}s")
         
         return response
@@ -63,343 +70,100 @@ app.add_middleware(
   allow_headers=["*"],
 )
 
+app.mount(
+    "/chesstools-ui",
+    StaticFiles(directory=str(chesstools_ui.static_dir())),
+    name="chesstools_ui",
+)
+
+
 # Custom docs endpoint with Google Analytics
 @app.get("/docs", include_in_schema=False)
 async def custom_swagger_ui_html():
     ga_id = get_ga_tracking_id()
-    html_content = f"""
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <!-- Google Analytics -->
-        <script async src="https://www.googletagmanager.com/gtag/js?id={ga_id}"></script>
-        <script>
-            window.dataLayer = window.dataLayer || [];
-            function gtag(){{dataLayer.push(arguments);}}
-            gtag('js', new Date());
-            gtag('config', '{ga_id}');
-        </script>
-        
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Chess Ratings API - ChessTools</title>
-        <link type="text/css" rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.25.3/swagger-ui.css">
-        <link rel="shortcut icon" href="https://fastapi.tiangolo.com/img/favicon.png">
-        <script src="https://cdn.tailwindcss.com"></script>
-        <script>
-            tailwind.config = {{
-                theme: {{
-                    extend: {{
-                        colors: {{
-                            border: "hsl(220 13% 91%)",
-                            input: "hsl(220 13% 91%)",
-                            ring: "hsl(224 71.4% 4.1%)",
-                            background: "hsl(0 0% 100%)",
-                            foreground: "hsl(224 71.4% 4.1%)",
-                            primary: {{
-                                DEFAULT: "hsl(220.9 39.3% 11%)",
-                                foreground: "hsl(210 20% 98%)",
-                            }},
-                            secondary: {{
-                                DEFAULT: "hsl(220 14.3% 90%)",
-                                foreground: "hsl(220.9 39.3% 8%)",
-                            }},
-                            destructive: {{
-                                DEFAULT: "hsl(0 84.2% 60.2%)",
-                                foreground: "hsl(210 20% 98%)",
-                            }},
-                            muted: {{
-                                DEFAULT: "hsl(220 14.3% 95.9%)",
-                                foreground: "hsl(220 8.9% 46.1%)",
-                            }},
-                            accent: {{
-                                DEFAULT: "hsl(220 14.3% 95.9%)",
-                                foreground: "hsl(220.9 39.3% 11%)",
-                            }},
-                            popover: {{
-                                DEFAULT: "hsl(0 0% 100%)",
-                                foreground: "hsl(224 71.4% 4.1%)",
-                            }},
-                            card: {{
-                                DEFAULT: "hsl(0 0% 100%)",
-                                foreground: "hsl(224 71.4% 4.1%)",
-                            }}
-                        }},
-                        borderRadius: {{
-                            lg: "0.75rem",
-                            md: "calc(0.75rem - 2px)",
-                            sm: "calc(0.5rem - 4px)",
-                        }}
-                    }}
-                }}
-            }}
-        </script>
-        <style>
-            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-            body {{ font-family: 'Inter', sans-serif; }}
-        </style>
-    </head>
-    <body class="bg-background text-foreground">
-        <!-- Navigation -->
-        <nav class="bg-primary p-4 sticky top-0 z-50">
-            <div class="container mx-auto flex justify-between items-center">
-                <a href="/" class="flex items-center gap-2">
-                    <svg class="h-8 w-8 text-primary-foreground" fill="currentColor" viewBox="0 0 375 374.999991" xmlns="http://www.w3.org/2000/svg">
-                        <defs>
-                            <clipPath id="2e198c8fd0">
-                                <path d="M 104 250.613281 L 271 250.613281 L 271 356 L 104 356 Z M 104 250.613281 " clip-rule="nonzero"/>
-                            </clipPath>
-                            <clipPath id="352a3390ed">
-                                <path d="M 104 19 L 267.605469 19 L 267.605469 188.285156 L 104 188.285156 Z M 104 19 " clip-rule="nonzero"/>
-                            </clipPath>
-                        </defs>
-                        <g clip-path="url(#2e198c8fd0)">
-                            <path fill="#ffbe2d" d="M 151.894531 272.488281 L 158.953125 186.238281 L 216.015625 186.238281 L 223.074219 272.488281 Z M 230.359375 272.488281 L 143.855469 272.488281 C 143.855469 286.394531 136.605469 299.636719 126.878906 308.867188 L 115.957031 319.226562 C 112.636719 321.332031 110.597656 325.152344 110.597656 329.289062 C 110.597656 335.75 115.496094 340.988281 121.539062 340.980469 L 253.4375 340.921875 C 259.480469 340.921875 264.371094 335.683594 264.371094 329.230469 L 264.371094 329.222656 C 264.371094 325.089844 262.332031 321.265625 259.007812 319.160156 L 245.949219 307.015625 C 236.644531 298.363281 231.867188 286.042969 231.214844 272.875 Z M 270.265625 348.164062 C 270.265625 344.191406 267.050781 340.980469 263.082031 340.980469 L 111.886719 340.980469 C 107.917969 340.980469 104.703125 344.191406 104.703125 348.164062 C 104.703125 352.132812 107.917969 355.347656 111.886719 355.347656 L 263.082031 355.347656 C 267.050781 355.347656 270.265625 352.132812 270.265625 348.164062 Z M 239.277344 177.484375 C 239.277344 172.625 235.34375 168.6875 230.484375 168.6875 L 144.484375 168.6875 C 139.625 168.6875 135.691406 172.625 135.691406 177.484375 C 135.691406 182.34375 139.625 186.277344 144.484375 186.277344 L 230.484375 186.277344 C 235.34375 186.277344 239.277344 182.34375 239.277344 177.484375 Z M 233.511719 159.894531 C 233.511719 155.035156 229.578125 151.097656 224.71875 151.097656 L 150.25 151.097656 C 145.390625 151.097656 141.457031 155.035156 141.457031 159.894531 C 141.457031 164.753906 145.390625 168.6875 150.25 168.6875 L 224.710938 168.6875 C 229.578125 168.6875 233.511719 164.753906 233.511719 159.894531 Z M 211.625 64.058594 C 211.625 59.199219 207.6875 55.261719 202.828125 55.261719 L 172.136719 55.261719 C 167.277344 55.261719 163.34375 59.199219 163.34375 64.058594 C 163.34375 68.917969 167.277344 72.855469 172.136719 72.855469 L 202.820312 72.855469 C 207.6875 72.855469 211.625 68.917969 211.625 64.058594 Z M 229.570312 72.855469 L 145.398438 72.855469 C 138.921875 72.855469 134.195312 79.003906 135.882812 85.265625 L 153.558594 151.097656 L 221.417969 151.097656 L 239.09375 85.265625 C 240.773438 79.003906 236.054688 72.855469 229.570312 72.855469 Z M 206.539062 31 L 195.183594 31 L 195.183594 19.644531 L 182.277344 19.644531 L 182.277344 31 L 170.921875 31 L 170.921875 43.917969 L 182.277344 43.917969 L 182.277344 55.269531 L 195.191406 55.269531 L 195.191406 43.90625 L 206.546875 43.90625 L 206.546875 31 Z M 206.539062 31 " fill-opacity="1" fill-rule="nonzero"/>
-                        </g>
-                        <g clip-path="url(#352a3390ed)">
-                            <path fill="#ffbe2d" d="M 151.894531 272.488281 L 158.953125 186.238281 L 216.015625 186.238281 L 223.074219 272.488281 Z M 230.359375 272.488281 L 143.855469 272.488281 C 143.855469 286.394531 136.605469 299.636719 126.878906 308.867188 L 115.957031 319.226562 C 112.636719 321.332031 110.597656 325.152344 110.597656 329.289062 C 110.597656 335.75 115.496094 340.988281 121.539062 340.980469 L 253.4375 340.921875 C 259.480469 340.921875 264.371094 335.683594 264.371094 329.230469 L 264.371094 329.222656 C 264.371094 325.089844 262.332031 321.265625 259.007812 319.160156 L 245.949219 307.015625 C 236.644531 298.363281 231.867188 286.042969 231.214844 272.875 Z M 270.265625 348.164062 C 270.265625 344.191406 267.050781 340.980469 263.082031 340.980469 L 111.886719 340.980469 C 107.917969 340.980469 104.703125 344.191406 104.703125 348.164062 C 104.703125 352.132812 107.917969 355.347656 111.886719 355.347656 L 263.082031 355.347656 C 267.050781 355.347656 270.265625 352.132812 270.265625 348.164062 Z M 239.277344 177.484375 C 239.277344 172.625 235.34375 168.6875 230.484375 168.6875 L 144.484375 168.6875 C 139.625 168.6875 135.691406 172.625 135.691406 177.484375 C 135.691406 182.34375 139.625 186.277344 144.484375 186.277344 L 230.484375 186.277344 C 235.34375 186.277344 239.277344 182.34375 239.277344 177.484375 Z M 233.511719 159.894531 C 233.511719 155.035156 229.578125 151.097656 224.71875 151.097656 L 150.25 151.097656 C 145.390625 151.097656 141.457031 155.035156 141.457031 159.894531 C 141.457031 164.753906 145.390625 168.6875 150.25 168.6875 L 224.710938 168.6875 C 229.578125 168.6875 233.511719 164.753906 233.511719 159.894531 Z M 211.625 64.058594 C 211.625 59.199219 207.6875 55.261719 202.828125 55.261719 L 172.136719 55.261719 C 167.277344 55.261719 163.34375 59.199219 163.34375 64.058594 C 163.34375 68.917969 167.277344 72.855469 172.136719 72.855469 L 202.820312 72.855469 C 207.6875 72.855469 211.625 68.917969 211.625 64.058594 Z M 229.570312 72.855469 L 145.398438 72.855469 C 138.921875 72.855469 134.195312 79.003906 135.882812 85.265625 L 153.558594 151.097656 L 221.417969 151.097656 L 239.09375 85.265625 C 240.773438 79.003906 236.054688 72.855469 229.570312 72.855469 Z M 206.539062 31 L 195.183594 31 L 195.183594 19.644531 L 182.277344 19.644531 L 182.277344 31 L 170.921875 31 L 170.921875 43.917969 L 182.277344 43.917969 L 182.277344 55.269531 L 195.191406 55.269531 L 195.191406 43.90625 L 206.546875 43.90625 L 206.546875 31 Z M 206.539062 31 " fill-opacity="1" fill-rule="nonzero"/>
-                        </g>
-                    </svg>
-                    <span class="text-xl font-bold text-primary-foreground">ChessTools</span>
-                </a>
-
-                <!-- Desktop Navigation -->
-                <div class="hidden md:flex items-center gap-6">
-                    <div class="relative group">
-                        <button class="bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground px-4 py-2 rounded-md transition-colors">
-                            Tools
-                        </button>
-                        <div class="absolute right-0 mt-2 w-48 bg-popover border border-border rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
-                            <div class="py-1">
-                                <a href="https://chesstools.org/generator" class="block px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground">FEN to PNG</a>
-                                <a href="https://chesstools.org/board" class="block px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground">Board</a>
-                                <a href="https://chesstools.org/analysis" class="block px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground">Analysis</a>
-                                <a href="https://gif.chesstools.org/" class="block px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground">GIF Generator</a>
-                                <a href="/" class="block px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground font-medium">Ratings API</a>
-                                <a href="https://chesstools.org/estimator" class="block px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground">Ratings Estimator</a>
-                                <a href="https://cfc.chesstools.org/" class="block px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground">CFC Ratings Processor</a>
-                            </div>
-                        </div>
-                    </div>
-                    <a href="https://chesstools.org/play" class="bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground px-4 py-2 rounded-md transition-colors">Play</a>
-                    <a href="https://chesstools.org/about" class="bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground px-4 py-2 rounded-md transition-colors">About</a>
-                </div>
-
-                <!-- Mobile Navigation -->
-                <div class="md:hidden">
-                    <button id="mobile-menu-btn" class="bg-primary-foreground text-primary p-2 rounded-md">
-                        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
-                        </svg>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Mobile Menu -->
-            <div id="mobile-menu" class="hidden md:hidden mt-4 bg-primary border-t border-primary-foreground/20">
-                <div class="flex flex-col gap-2 py-4">
-                    <a href="https://chesstools.org/board" class="text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors">Board</a>
-                    <a href="https://chesstools.org/play" class="text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors">Play</a>
-                    <a href="https://chesstools.org/analysis" class="text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors">Analysis</a>
-                    <a href="https://chesstools.org/estimator" class="text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors">Ratings Estimator</a>
-                    <a href="https://chesstools.org/generator" class="text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors">Board Generator</a>
-                    <a href="https://gif.chesstools.org/" class="text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors">Chess GIF Generator</a>
-                    <a href="/" class="text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors font-medium">Ratings API</a>
-                    <a href="https://chesstools.org/about" class="text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors">About</a>
-                    <a href="https://cfc.chesstools.org/" class="text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors">CFC Ratings Processor</a>
-                </div>
-            </div>
-        </nav>
-
-        <!-- API Documentation Content -->
-        <div class="container mx-auto px-4 py-8">
-            <div class="bg-card rounded-lg shadow-sm border border-border p-6 mb-6">
-                <h1 class="text-3xl font-bold text-foreground mb-2">Chess Ratings API Documentation</h1>
-                <p class="text-muted-foreground">Highly reliable, free, chess ratings API for FIDE, CFC, and other rating systems.</p>
-            </div>
-            
-            <div id="swagger-ui" class="bg-card rounded-lg shadow-sm border border-border"></div>
-        </div>
-        
-        <script src="https://unpkg.com/swagger-ui-dist@5.25.3/swagger-ui-bundle.js"></script>
-        <script src="https://unpkg.com/swagger-ui-dist@5.25.3/swagger-ui-standalone-preset.js"></script>
-        <script>
-        const ui = SwaggerUIBundle({{
-            url: '/openapi.json',
-            dom_id: '#swagger-ui',
-            presets: [
-                SwaggerUIBundle.presets.apis,
-                SwaggerUIStandalonePreset
-            ],
-            layout: "StandaloneLayout",
-            deepLinking: true,
-            showExtensions: true,
-            showCommonExtensions: true
-        }})
-        
-        // Mobile menu toggle
-        document.getElementById('mobile-menu-btn').addEventListener('click', function() {{
-            const menu = document.getElementById('mobile-menu');
-            menu.classList.toggle('hidden');
-        }});
-        
-        // Track page view
-        gtag('event', 'page_view', {{
-            page_title: 'Chess Ratings API - Documentation',
-            page_location: window.location.href
-        }});
-        </script>
-    </body>
-    </html>
-    """
+    nav = chesstools_ui.nav_html()
+    footer = chesstools_ui.footer_html()
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script async src="https://www.googletagmanager.com/gtag/js?id={ga_id}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){{dataLayer.push(arguments);}}
+      gtag('js', new Date());
+      gtag('config', '{ga_id}');
+    </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chess Ratings API - ChessTools</title>
+    <link type="text/css" rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.25.3/swagger-ui.css">
+    <link rel="icon" href="https://chesstools.org/chesstools.svg" type="image/svg+xml" sizes="any">
+    <link rel="stylesheet" href="/chesstools-ui/theme.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/chesstools-ui/tailwind-shell.js"></script>
+</head>
+<body class="bg-background text-foreground antialiased flex min-h-screen flex-col">
+{nav}
+<main class="flex-1">
+<div class="container mx-auto px-4 py-8">
+<div class="bg-card rounded-lg shadow-sm border border-border p-6 mb-6">
+<h1 class="text-3xl font-bold text-foreground mb-2">Chess Ratings API Documentation</h1>
+<p class="text-muted-foreground">Highly reliable, free, chess ratings API for FIDE, CFC, and other rating systems.</p>
+</div>
+<div id="swagger-ui" class="bg-card rounded-lg shadow-sm border border-border"></div>
+</div>
+</main>
+{footer}
+<script src="/chesstools-ui/shell.js" defer></script>
+<script src="https://unpkg.com/swagger-ui-dist@5.25.3/swagger-ui-bundle.js"></script>
+<script src="https://unpkg.com/swagger-ui-dist@5.25.3/swagger-ui-standalone-preset.js"></script>
+<script>
+SwaggerUIBundle({{
+  url: '/openapi.json',
+  dom_id: '#swagger-ui',
+  presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+  layout: "StandaloneLayout",
+  deepLinking: true,
+  showExtensions: true,
+  showCommonExtensions: true
+}});
+gtag('event', 'page_view', {{
+  page_title: 'Chess Ratings API - Documentation',
+  page_location: window.location.href
+}});
+</script>
+</body>
+</html>"""
     return HTMLResponse(content=html_content)
 
-# Custom docs HTML with Google Analytics embedded
+# Custom landing HTML with Google Analytics embedded
 @app.get("/", include_in_schema=False)
 def home():
     ga_id = get_ga_tracking_id()
-    html_content = f"""
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <!-- Google Analytics -->
-        <script async src="https://www.googletagmanager.com/gtag/js?id={ga_id}"></script>
-        <script>
-            window.dataLayer = window.dataLayer || [];
-            function gtag(){{dataLayer.push(arguments);}}
-            gtag('js', new Date());
-            gtag('config', '{ga_id}');
-        </script>
-        
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Chess Ratings API - ChessTools</title>
-        <meta name="description" content="Highly reliable, free, chess ratings API for FIDE, CFC, and other rating systems.">
-        <script src="https://cdn.tailwindcss.com"></script>
-        <script>
-            tailwind.config = {{
-                theme: {{
-                    extend: {{
-                        colors: {{
-                            border: "hsl(220 13% 91%)",
-                            input: "hsl(220 13% 91%)",
-                            ring: "hsl(224 71.4% 4.1%)",
-                            background: "hsl(0 0% 100%)",
-                            foreground: "hsl(224 71.4% 4.1%)",
-                            primary: {{
-                                DEFAULT: "hsl(220.9 39.3% 11%)",
-                                foreground: "hsl(210 20% 98%)",
-                            }},
-                            secondary: {{
-                                DEFAULT: "hsl(220 14.3% 90%)",
-                                foreground: "hsl(220.9 39.3% 8%)",
-                            }},
-                            destructive: {{
-                                DEFAULT: "hsl(0 84.2% 60.2%)",
-                                foreground: "hsl(210 20% 98%)",
-                            }},
-                            muted: {{
-                                DEFAULT: "hsl(220 14.3% 95.9%)",
-                                foreground: "hsl(220 8.9% 46.1%)",
-                            }},
-                            accent: {{
-                                DEFAULT: "hsl(220 14.3% 95.9%)",
-                                foreground: "hsl(220.9 39.3% 11%)",
-                            }},
-                            popover: {{
-                                DEFAULT: "hsl(0 0% 100%)",
-                                foreground: "hsl(224 71.4% 4.1%)",
-                            }},
-                            card: {{
-                                DEFAULT: "hsl(0 0% 100%)",
-                                foreground: "hsl(224 71.4% 4.1%)",
-                            }}
-                        }},
-                        borderRadius: {{
-                            lg: "0.75rem",
-                            md: "calc(0.75rem - 2px)",
-                            sm: "calc(0.5rem - 4px)",
-                        }}
-                    }}
-                }}
-            }}
-        </script>
-        <style>
-            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-            body {{ font-family: 'Inter', sans-serif; }}
-        </style>
-    </head>
-    <body class="bg-background text-foreground">
-        <!-- Navigation -->
-        <nav class="bg-primary p-4 sticky top-0 z-50">
-            <div class="container mx-auto flex justify-between items-center">
-                <a href="/" class="flex items-center gap-2">
-                    <svg class="h-8 w-8 text-primary-foreground" fill="currentColor" viewBox="0 0 375 374.999991" xmlns="http://www.w3.org/2000/svg">
-                        <defs>
-                            <clipPath id="2e198c8fd0">
-                                <path d="M 104 250.613281 L 271 250.613281 L 271 356 L 104 356 Z M 104 250.613281 " clip-rule="nonzero"/>
-                            </clipPath>
-                            <clipPath id="352a3390ed">
-                                <path d="M 104 19 L 267.605469 19 L 267.605469 188.285156 L 104 188.285156 Z M 104 19 " clip-rule="nonzero"/>
-                            </clipPath>
-                        </defs>
-                        <g clip-path="url(#2e198c8fd0)">
-                            <path fill="#ffbe2d" d="M 151.894531 272.488281 L 158.953125 186.238281 L 216.015625 186.238281 L 223.074219 272.488281 Z M 230.359375 272.488281 L 143.855469 272.488281 C 143.855469 286.394531 136.605469 299.636719 126.878906 308.867188 L 115.957031 319.226562 C 112.636719 321.332031 110.597656 325.152344 110.597656 329.289062 C 110.597656 335.75 115.496094 340.988281 121.539062 340.980469 L 253.4375 340.921875 C 259.480469 340.921875 264.371094 335.683594 264.371094 329.230469 L 264.371094 329.222656 C 264.371094 325.089844 262.332031 321.265625 259.007812 319.160156 L 245.949219 307.015625 C 236.644531 298.363281 231.867188 286.042969 231.214844 272.875 Z M 270.265625 348.164062 C 270.265625 344.191406 267.050781 340.980469 263.082031 340.980469 L 111.886719 340.980469 C 107.917969 340.980469 104.703125 344.191406 104.703125 348.164062 C 104.703125 352.132812 107.917969 355.347656 111.886719 355.347656 L 263.082031 355.347656 C 267.050781 355.347656 270.265625 352.132812 270.265625 348.164062 Z M 239.277344 177.484375 C 239.277344 172.625 235.34375 168.6875 230.484375 168.6875 L 144.484375 168.6875 C 139.625 168.6875 135.691406 172.625 135.691406 177.484375 C 135.691406 182.34375 139.625 186.277344 144.484375 186.277344 L 230.484375 186.277344 C 235.34375 186.277344 239.277344 182.34375 239.277344 177.484375 Z M 233.511719 159.894531 C 233.511719 155.035156 229.578125 151.097656 224.71875 151.097656 L 150.25 151.097656 C 145.390625 151.097656 141.457031 155.035156 141.457031 159.894531 C 141.457031 164.753906 145.390625 168.6875 150.25 168.6875 L 224.710938 168.6875 C 229.578125 168.6875 233.511719 164.753906 233.511719 159.894531 Z M 211.625 64.058594 C 211.625 59.199219 207.6875 55.261719 202.828125 55.261719 L 172.136719 55.261719 C 167.277344 55.261719 163.34375 59.199219 163.34375 64.058594 C 163.34375 68.917969 167.277344 72.855469 172.136719 72.855469 L 202.820312 72.855469 C 207.6875 72.855469 211.625 68.917969 211.625 64.058594 Z M 229.570312 72.855469 L 145.398438 72.855469 C 138.921875 72.855469 134.195312 79.003906 135.882812 85.265625 L 153.558594 151.097656 L 221.417969 151.097656 L 239.09375 85.265625 C 240.773438 79.003906 236.054688 72.855469 229.570312 72.855469 Z M 206.539062 31 L 195.183594 31 L 195.183594 19.644531 L 182.277344 19.644531 L 182.277344 31 L 170.921875 31 L 170.921875 43.917969 L 182.277344 43.917969 L 182.277344 55.269531 L 195.191406 55.269531 L 195.191406 43.90625 L 206.546875 43.90625 L 206.546875 31 Z M 206.539062 31 " fill-opacity="1" fill-rule="nonzero"/>
-                        </g>
-                        <g clip-path="url(#352a3390ed)">
-                            <path fill="#ffbe2d" d="M 151.894531 272.488281 L 158.953125 186.238281 L 216.015625 186.238281 L 223.074219 272.488281 Z M 230.359375 272.488281 L 143.855469 272.488281 C 143.855469 286.394531 136.605469 299.636719 126.878906 308.867188 L 115.957031 319.226562 C 112.636719 321.332031 110.597656 325.152344 110.597656 329.289062 C 110.597656 335.75 115.496094 340.988281 121.539062 340.980469 L 253.4375 340.921875 C 259.480469 340.921875 264.371094 335.683594 264.371094 329.230469 L 264.371094 329.222656 C 264.371094 325.089844 262.332031 321.265625 259.007812 319.160156 L 245.949219 307.015625 C 236.644531 298.363281 231.867188 286.042969 231.214844 272.875 Z M 270.265625 348.164062 C 270.265625 344.191406 267.050781 340.980469 263.082031 340.980469 L 111.886719 340.980469 C 107.917969 340.980469 104.703125 344.191406 104.703125 348.164062 C 104.703125 352.132812 107.917969 355.347656 111.886719 355.347656 L 263.082031 355.347656 C 267.050781 355.347656 270.265625 352.132812 270.265625 348.164062 Z M 239.277344 177.484375 C 239.277344 172.625 235.34375 168.6875 230.484375 168.6875 L 144.484375 168.6875 C 139.625 168.6875 135.691406 172.625 135.691406 177.484375 C 135.691406 182.34375 139.625 186.277344 144.484375 186.277344 L 230.484375 186.277344 C 235.34375 186.277344 239.277344 182.34375 239.277344 177.484375 Z M 233.511719 159.894531 C 233.511719 155.035156 229.578125 151.097656 224.71875 151.097656 L 150.25 151.097656 C 145.390625 151.097656 141.457031 155.035156 141.457031 159.894531 C 141.457031 164.753906 145.390625 168.6875 150.25 168.6875 L 224.710938 168.6875 C 229.578125 168.6875 233.511719 164.753906 233.511719 159.894531 Z M 211.625 64.058594 C 211.625 59.199219 207.6875 55.261719 202.828125 55.261719 L 172.136719 55.261719 C 167.277344 55.261719 163.34375 59.199219 163.34375 64.058594 C 163.34375 68.917969 167.277344 72.855469 172.136719 72.855469 L 202.820312 72.855469 C 207.6875 72.855469 211.625 68.917969 211.625 64.058594 Z M 229.570312 72.855469 L 145.398438 72.855469 C 138.921875 72.855469 134.195312 79.003906 135.882812 85.265625 L 153.558594 151.097656 L 221.417969 151.097656 L 239.09375 85.265625 C 240.773438 79.003906 236.054688 72.855469 229.570312 72.855469 Z M 206.539062 31 L 195.183594 31 L 195.183594 19.644531 L 182.277344 19.644531 L 182.277344 31 L 170.921875 31 L 170.921875 43.917969 L 182.277344 43.917969 L 182.277344 55.269531 L 195.191406 55.269531 L 195.191406 43.90625 L 206.546875 43.90625 L 206.546875 31 Z M 206.539062 31 " fill-opacity="1" fill-rule="nonzero"/>
-                        </g>
-                    </svg>
-                    <span class="text-xl font-bold text-primary-foreground">ChessTools</span>
-                </a>
-
-                <!-- Desktop Navigation -->
-                <div class="hidden md:flex items-center gap-6">
-                    <div class="relative group">
-                        <button class="bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground px-4 py-2 rounded-md transition-colors">
-                            Tools
-                        </button>
-                        <div class="absolute right-0 mt-2 w-48 bg-popover border border-border rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
-                            <div class="py-1">
-                                <a href="https://chesstools.org/generator" class="block px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground">FEN to PNG</a>
-                                <a href="https://chesstools.org/board" class="block px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground">Board</a>
-                                <a href="https://chesstools.org/analysis" class="block px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground">Analysis</a>
-                                <a href="https://gif.chesstools.org/" class="block px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground">GIF Generator</a>
-                                <a href="/" class="block px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground font-medium">Ratings API</a>
-                                <a href="https://chesstools.org/estimator" class="block px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground">Ratings Estimator</a>
-                                <a href="https://cfc.chesstools.org/" class="block px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground">CFC Ratings Processor</a>
-                            </div>
-                        </div>
-                    </div>
-                    <a href="https://chesstools.org/play" class="bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground px-4 py-2 rounded-md transition-colors">Play</a>
-                    <a href="https://chesstools.org/about" class="bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground px-4 py-2 rounded-md transition-colors">About</a>
-                </div>
-
-                <!-- Mobile Navigation -->
-                <div class="md:hidden">
-                    <button id="mobile-menu-btn" class="bg-primary-foreground text-primary p-2 rounded-md">
-                        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
-                        </svg>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Mobile Menu -->
-            <div id="mobile-menu" class="hidden md:hidden mt-4 bg-primary border-t border-primary-foreground/20">
-                <div class="flex flex-col gap-2 py-4">
-                    <a href="https://chesstools.org/board" class="text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors">Board</a>
-                    <a href="https://chesstools.org/play" class="text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors">Play</a>
-                    <a href="https://chesstools.org/analysis" class="text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors">Analysis</a>
-                    <a href="https://chesstools.org/estimator" class="text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors">Ratings Estimator</a>
-                    <a href="https://chesstools.org/generator" class="text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors">Board Generator</a>
-                    <a href="https://gif.chesstools.org/" class="text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors">Chess GIF Generator</a>
-                    <a href="/" class="text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors font-medium">Ratings API</a>
-                    <a href="https://chesstools.org/about" class="text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors">About</a>
-                    <a href="https://cfc.chesstools.org/" class="text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors">CFC Ratings Processor</a>
-                </div>
-            </div>
-        </nav>
+    nav = chesstools_ui.nav_html()
+    footer = chesstools_ui.footer_html()
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script async src="https://www.googletagmanager.com/gtag/js?id={ga_id}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){{dataLayer.push(arguments);}}
+      gtag('js', new Date());
+      gtag('config', '{ga_id}');
+    </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="https://chesstools.org/chesstools.svg" type="image/svg+xml" sizes="any">
+    <title>Chess Ratings API - ChessTools</title>
+    <meta name="description" content="Highly reliable, free, chess ratings API for FIDE, CFC, and other rating systems.">
+    <link rel="stylesheet" href="/chesstools-ui/theme.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/chesstools-ui/tailwind-shell.js"></script>
+</head>
+<body class="bg-background text-foreground antialiased flex min-h-screen flex-col">
+{nav}
+<main class="flex-1">
 
         <!-- Hero Section -->
         <section class="relative overflow-hidden bg-gradient-to-b from-primary/10 to-background py-20">
@@ -504,35 +268,26 @@ def home():
             </div>
         </section>
 
-        <!-- Footer -->
-        <footer class="bg-primary text-primary-foreground py-8">
-            <div class="container mx-auto px-4 text-center">
-                <p>&copy; 2025 ChessTools. Open source chess tools and APIs.</p>
-            </div>
-        </footer>
-        
-        <script>
-            // Mobile menu toggle
-            document.getElementById('mobile-menu-btn').addEventListener('click', function() {{
-                const menu = document.getElementById('mobile-menu');
-                menu.classList.toggle('hidden');
-            }});
-            
-            // Track page view
-            gtag('event', 'page_view', {{
-                page_title: 'Chess Ratings API - ChessTools',
-                page_location: window.location.href
-            }});
-        </script>
-    </body>
-    </html>
-    """
+</main>
+{footer}
+<script src="/chesstools-ui/shell.js" defer></script>
+<script>
+gtag('event', 'page_view', {{
+  page_title: 'Chess Ratings API - ChessTools',
+  page_location: window.location.href
+}});
+</script>
+</body>
+</html>"""
     return HTMLResponse(content=html_content)
 
 @app.get("/fide/top_active/", tags=["FIDE"])
 async def top_players(limit: int = 100, history: bool = False):
-  response = fide_scraper.get_top_players(limit=limit, history=history)
-  return response
+    try:
+        response = fide_scraper.get_top_players(limit=limit, history=history)
+        return response
+    except FIDEServiceError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
 # FIDE endpoints
 @app.get("/fide/top_by_rating", tags=["FIDE"])
@@ -542,8 +297,11 @@ async def get_top_fide_players(limit: int = 100):
 
 @app.get("/fide/player_history/", tags=["FIDE"])
 async def player_history(fide_id: str):
-  response = fide_scraper.get_player_history(fide_id=fide_id)
-  return response
+    try:
+        response = fide_scraper.get_player_history(fide_id=fide_id)
+        return response
+    except FIDEServiceError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
 @app.get("/fide/{player_id}", tags=["FIDE"])
 async def get_fide_player_rating(player_id: str):
@@ -556,8 +314,11 @@ async def get_fide_player_rating(player_id: str):
 
 @app.get("/fide/player_info/", tags=["FIDE"])
 async def player_info(fide_id: str, history: bool = False):
-  response = fide_scraper.get_player_info(fide_id=fide_id, history=history)
-  return response
+    try:
+        response = fide_scraper.get_player_info(fide_id=fide_id, history=history)
+        return response
+    except FIDEServiceError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
 @app.get("/cfc/top_by_rating", tags=["CFC"])
 async def get_top_cfc_players(limit: int = 100):

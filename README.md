@@ -31,7 +31,9 @@ Similarly, no publicly available API is currently available for CFC ratings. We 
 
 A Redis cache is implemented to provide faster lookups for common use cases. Additionally, the API now includes MongoDB integration for storing and querying FIDE, CFC, and USCF rating lists, with automatic periodic updates. 
 
-A MongoDB server is used for storing the latest FIDE, CFC, and USCF ratings. 
+A MongoDB server is used for storing the latest FIDE, CFC, and USCF ratings.
+
+The landing page and `/docs` UI ship with vendored ChessTools chrome: **`static/chesstools/`** (CSS/JS served at `/chesstools-ui/…`) and **`templates/chesstools/`** (`nav.html`, `footer.html`). Override with **`CHESSTOOLS_UI_STATIC`**, **`CHESSTOOLS_UI_TEMPLATES`**, or **`RATINGS_API_ROOT`** if needed. Build the Docker image from this repository root (`docker build -t ratings-api .`).
 
 ## Features
 

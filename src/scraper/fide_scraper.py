@@ -3,6 +3,23 @@ import src.scraper.functions as scraper
 import src.scraper.cache as cache # Redis client
 from src.scraper.cache import get_from_cache, save_to_cache
 
+
+FIDE_REQUEST_TIMEOUT = 10
+FIDE_UNAVAILABLE_MESSAGE = "FIDE ratings service is temporarily unavailable. Please try again later."
+
+
+class FIDEServiceError(RuntimeError):
+    pass
+
+
+def _get_fide_html(url: str) -> str:
+    try:
+        response = requests.get(url, timeout=FIDE_REQUEST_TIMEOUT)
+        response.raise_for_status()
+        return response.text
+    except (requests.exceptions.Timeout, requests.exceptions.RequestException) as e:
+        raise FIDEServiceError(FIDE_UNAVAILABLE_MESSAGE) from e
+
 def get_top_players(limit: int = 100, history: bool = False) -> list[dict]:
     # Create a cache key based on function parameters (used for cache lookups)
     cache_key = f"top_players:{limit}:{history}"
@@ -13,8 +30,7 @@ def get_top_players(limit: int = 100, history: bool = False) -> list[dict]:
         return cached_data
     
     # If not in cache, proceed with fetch
-    fide_top_players_page = requests.get("https://ratings.fide.com/a_top.php?list=open")
-    html_doc = fide_top_players_page.text
+    html_doc = _get_fide_html("https://ratings.fide.com/a_top.php?list=open")
     top_players = scraper.get_top_players(html_doc)
     top_players = top_players[0:limit]
 
@@ -32,8 +48,7 @@ def get_top_players(limit: int = 100, history: bool = False) -> list[dict]:
         
         if not player_history:
             # If not in cache, fetch it
-            response = requests.get(fide_profile_page)
-            html_doc = response.text
+            html_doc = _get_fide_html(fide_profile_page)
             player_history = scraper.get_player_history(html_doc)
             # Cache player history
             save_to_cache(history_cache_key, player_history)
@@ -55,8 +70,7 @@ def get_player_history(fide_id: str) -> list[dict]:
     
     # If not in cache, proceed with fetch
     fide_profile_page = f"https://ratings.fide.com/profile/{fide_id}"
-    response = requests.get(fide_profile_page)
-    html_doc = response.text
+    html_doc = _get_fide_html(fide_profile_page)
     player_history = scraper.get_player_history(html_doc)
     
     # Cache the result before returning
@@ -74,8 +88,7 @@ def get_player_info(fide_id: str, history: bool = False):
     
     # If not in cache, proceed with fetch
     fide_profile_page = f"https://ratings.fide.com/profile/{fide_id}"
-    response = requests.get(fide_profile_page)
-    html_doc = response.text
+    html_doc = _get_fide_html(fide_profile_page)
     player_info = scraper.get_player_info(html_doc)
 
     if history == False:
